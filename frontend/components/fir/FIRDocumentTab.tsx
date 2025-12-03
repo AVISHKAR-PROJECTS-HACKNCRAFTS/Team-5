@@ -16,169 +16,41 @@ export function FIRDocumentTab({ result, copied, onCopy, onPrint }: FIRDocumentT
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 20;
+    const margin = 15;
     const contentWidth = pageWidth - margin * 2;
     let yPos = margin;
 
-    const addText = (
-      text: string,
-      fontSize: number,
-      isBold: boolean = false,
-      align: "left" | "center" = "left"
-    ) => {
-      doc.setFontSize(fontSize);
-      doc.setFont("helvetica", isBold ? "bold" : "normal");
-      const lines = doc.splitTextToSize(text, contentWidth);
-
-      lines.forEach((line: string) => {
-        if (yPos > pageHeight - margin) {
-          doc.addPage();
-          yPos = margin;
-        }
-        if (align === "center") {
-          doc.text(line, pageWidth / 2, yPos, { align: "center" });
-        } else {
-          doc.text(line, margin, yPos);
-        }
-        yPos += fontSize * 0.5;
-      });
-    };
-
-    const addLine = () => {
-      yPos += 2;
-      doc.setDrawColor(0, 0, 0);
-      doc.line(margin, yPos, pageWidth - margin, yPos);
-      yPos += 5;
-    };
-
-    // Header - Plain black and white
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(18);
-    doc.setFont("helvetica", "bold");
-    doc.text("FIRST INFORMATION REPORT (FIR)", pageWidth / 2, 15, { align: "center" });
-    doc.setDrawColor(0, 0, 0);
-    doc.line(margin, 20, pageWidth - margin, 20);
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(`FIR ID: ${result.fir_id}`, pageWidth / 2, 28, { align: "center" });
-    doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth / 2, 34, { align: "center" });
-    doc.line(margin, 38, pageWidth - margin, 38);
-
-    yPos = 48;
-
-    // Section A: Complainant Details
-    addText("SECTION A: COMPLAINANT DETAILS", 11, true);
-    addLine();
-    addText(`Name: ${result.name}`, 10);
-    addText(`Contact: ${result.contact}`, 10);
-    if (result.witness_name) {
-      addText(`Witness: ${result.witness_name} (${result.witness_contact || "N/A"})`, 10);
-    }
-    yPos += 5;
-
-    // Section B: Incident Details
-    addText("SECTION B: INCIDENT DETAILS", 11, true);
-    addLine();
-    addText(`Date: ${result.date}`, 10);
-    addText(`Time: ${result.time}`, 10);
-    addText(`Location: ${result.location}`, 10);
-    yPos += 5;
-
-    // Section C: Classification
-    addText("SECTION C: OFFENCE CLASSIFICATION", 11, true);
-    addLine();
-    addText(`Type: ${result.offence_type}`, 10);
-    addText(`Confidence: ${(result.confidence * 100).toFixed(1)}% (${result.confidence_level})`, 10);
-    addText(`Severity: ${result.severity_level} (Score: ${result.severity_score}/100)`, 10);
-    yPos += 5;
-
-    // Section D: Extracted Information
-    addText("SECTION D: EXTRACTED INFORMATION", 11, true);
-    addLine();
-    if (result.extracted_persons?.length > 0) {
-      addText(`Persons Mentioned: ${result.extracted_persons.join(", ")}`, 10);
-    }
-    if (result.extracted_entities?.locations?.length > 0) {
-      addText(`Locations: ${result.extracted_entities.locations.join(", ")}`, 10);
-    }
-    if (result.extracted_phone_numbers?.length > 0) {
-      addText(`Phone Numbers: ${result.extracted_phone_numbers.join(", ")}`, 10);
-    }
-    if (result.extracted_emails?.length > 0) {
-      addText(`Emails: ${result.extracted_emails.join(", ")}`, 10);
-    }
-    if (result.extracted_aadhar?.length > 0) {
-      addText(`Aadhaar Numbers: ${result.extracted_aadhar.join(", ")}`, 10);
-    }
-    if (result.extracted_vehicle_numbers?.length > 0) {
-      addText(`Vehicle Numbers: ${result.extracted_vehicle_numbers.join(", ")}`, 10);
-    }
-    if (result.extracted_pan_numbers?.length > 0) {
-      addText(`PAN Numbers: ${result.extracted_pan_numbers.join(", ")}`, 10);
-    }
-    yPos += 5;
-
-    // Section E: Legal Sections
-    if (result.ipc_sections?.length > 0) {
-      addText("SECTION E: APPLICABLE LEGAL SECTIONS", 11, true);
-      addLine();
-      result.ipc_sections.forEach((section) => {
-        addText(`Section ${section.section}: ${section.description}`, 10);
-      });
-      yPos += 5;
-    }
-
-    // Section F: Severity Factors
-    if (result.severity_factors?.length > 0) {
-      addText("SECTION F: SEVERITY FACTORS", 11, true);
-      addLine();
-      result.severity_factors.forEach((factor, idx) => {
-        addText(`${idx + 1}. ${factor}`, 10);
-      });
-      yPos += 5;
-    }
-
-    // Section G: Full FIR Document
-    addText("SECTION G: FIR DOCUMENT", 11, true);
-    addLine();
-    yPos += 5;
-
-    doc.setFontSize(9);
+    // Set monospace font to match the <pre> display
     doc.setFont("courier", "normal");
-    const firLines = doc.splitTextToSize(result.fir_text, contentWidth);
-    firLines.forEach((line: string) => {
-      if (yPos > pageHeight - margin - 15) {
+    doc.setFontSize(9);
+    doc.setTextColor(0, 0, 0);
+
+    // Split the FIR text into lines
+    const lines = result.fir_text.split('\n');
+
+    lines.forEach((line: string) => {
+      // Check if we need a new page
+      if (yPos > pageHeight - margin) {
         doc.addPage();
         yPos = margin;
       }
-      doc.text(line, margin, yPos);
-      yPos += 4;
-    });
 
-    // Footer
-    yPos = pageHeight - 25;
-    addLine();
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "italic");
-    doc.setTextColor(0, 0, 0);
-    doc.text(
-      "This document was generated by the Intelligent FIR Auto Writing System.",
-      pageWidth / 2,
-      yPos,
-      { align: "center" }
-    );
-    doc.text(
-      "AI-generated content should be verified by legal authorities.",
-      pageWidth / 2,
-      yPos + 4,
-      { align: "center" }
-    );
-    doc.text(
-      `Processing Time: ${result.processing_time_seconds?.toFixed(3)}s`,
-      pageWidth / 2,
-      yPos + 8,
-      { align: "center" }
-    );
+      // Handle long lines by wrapping them
+      if (line.length > 80) {
+        const wrappedLines = doc.splitTextToSize(line, contentWidth);
+        wrappedLines.forEach((wrappedLine: string) => {
+          if (yPos > pageHeight - margin) {
+            doc.addPage();
+            yPos = margin;
+          }
+          doc.text(wrappedLine, margin, yPos);
+          yPos += 4;
+        });
+      } else {
+        doc.text(line, margin, yPos);
+        yPos += 4;
+      }
+    });
 
     const fileName = `FIR_${result.fir_id}_${result.name.replace(/\s+/g, "_")}.pdf`;
     doc.save(fileName);

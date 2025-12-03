@@ -40,6 +40,7 @@ class NLPService:
         self.use_transformers = use_transformers
         self.ner_pipeline = None
         self.spacy_nlp = None
+        self.use_regex_only = False
         self._load_models()
     
     def _load_models(self):
@@ -97,8 +98,9 @@ class NLPService:
                     logger.info("Loaded spaCy small model (en_core_web_sm)")
                     
         except Exception as e:
-            logger.error(f"Failed to load spaCy model: {e}")
-            raise RuntimeError("No NLP model could be loaded")
+            logger.warning(f"Failed to load spaCy model: {e}")
+            logger.info("Using regex-based entity extraction (no ML model)")
+            self.use_regex_only = True
     
     def extract_entities(self, text: str) -> Dict[str, Any]:
         """
@@ -112,8 +114,10 @@ class NLPService:
         """
         if self.use_transformers and self.ner_pipeline:
             return self._extract_with_transformers(text)
-        else:
+        elif self.spacy_nlp:
             return self._extract_with_spacy(text)
+        else:
+            return self._extract_with_regex(text)
     
     def _extract_with_transformers(self, text: str) -> Dict[str, Any]:
         """Extract entities using HuggingFace transformers."""
@@ -217,6 +221,76 @@ class NLPService:
         
         return entities
     
+    def _extract_with_regex(self, text: str) -> Dict[str, Any]:
+        """Extract entities using regex patterns only (fallback when no ML model available)."""
+        entities = {
+            "persons": [],
+            "locations": [],
+            "dates": [],
+            "times": [],
+            "organizations": [],
+            "money": []
+        }
+        
+        try:
+            # Extract dates and times using regex
+            entities["dates"] = self._extract_dates(text)
+            entities["times"] = self._extract_times(text)
+            entities["money"] = self._extract_money(text)
+            
+            # Extract Indian locations using pattern matching
+            entities["locations"] = self._extract_indian_locations(text)
+            
+            # Extract person names using common patterns
+            entities["persons"] = self._extract_persons_regex(text)
+            
+            # Extract organizations using common patterns
+            entities["organizations"] = self._extract_organizations_regex(text)
+            
+            # Deduplicate
+            for key in entities:
+                entities[key] = list(dict.fromkeys(entities[key]))
+                
+        except Exception as e:
+            logger.error(f"Error in regex entity extraction: {e}")
+        
+        return entities
+    
+    def _extract_persons_regex(self, text: str) -> List[str]:
+        """Extract person names using regex patterns."""
+        persons = []
+        
+        # Pattern for names following common prefixes
+        name_patterns = [
+            r'(?:Mr\.?|Mrs\.?|Ms\.?|Dr\.?|Shri|Smt\.?|Kumari)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})',
+            r'(?:named?|called?|accused|complainant|victim)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})',
+            r'(?:son|daughter|wife|husband)\s+of\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})',
+        ]
+        
+        for pattern in name_patterns:
+            matches = re.findall(pattern, text)
+            persons.extend(matches)
+        
+        return persons
+    
+    def _extract_organizations_regex(self, text: str) -> List[str]:
+        """Extract organization names using regex patterns."""
+        orgs = []
+        
+        # Common organization suffixes
+        org_patterns = [
+            r'\b([A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*)*\s+(?:Bank|Police|Station|Hospital|College|University|Company|Ltd|Pvt|Inc|Corp|Limited|Private))\b',
+            r'\b(State\s+Bank\s+of\s+[A-Za-z]+)\b',
+            r'\b(Reserve\s+Bank\s+of\s+India|RBI)\b',
+            r'\b([A-Z]+\s+Bank)\b',
+        ]
+        
+        for pattern in org_patterns:
+            matches = re.findall(pattern, text)
+            orgs.extend(matches)
+        
+        return orgs
+    
     def _extract_dates(self, text: str) -> List[str]:
         """Extract dates using comprehensive regex patterns."""
         date_patterns = [
@@ -270,19 +344,26 @@ class NLPService:
     def _extract_money(self, text: str) -> List[str]:
         """Extract monetary amounts."""
         money_patterns = [
-            # Rs. or INR format
-            r'\b(?:Rs\.?|INR|₹)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\b',
-            r'\b(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(?:rupees?|Rs\.?|INR)\b',
+            # Rs/Rs./INR/₹ followed by number (with or without space, commas)
+            r'(Rs\.?\s*\d[\d,]*(?:\.\d{2})?)',
+            r'(INR\s*\d[\d,]*(?:\.\d{2})?)',
+            r'(₹\s*\d[\d,]*(?:\.\d{2})?)',
+            # Number followed by rupees
+            r'(\d[\d,]*(?:\.\d{2})?\s*rupees?)',
             # Lakh/Crore format
-            r'\b(?:Rs\.?|INR|₹)?\s*(\d+(?:\.\d+)?\s*(?:lakh|lac|crore|cr)s?)\b',
+            r'(Rs\.?\s*\d+(?:\.\d+)?\s*(?:lakh|lac|crore|cr)s?)',
+            r'(\d+(?:\.\d+)?\s*(?:lakh|lac|crore|cr)s?)',
             # USD/Dollar
-            r'\b(?:\$|USD)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\b',
+            r'(\$\s*\d[\d,]*(?:\.\d{2})?)',
+            r'(USD\s*\d[\d,]*(?:\.\d{2})?)',
         ]
         
         money = []
         for pattern in money_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
-            money.extend(matches)
+            for m in matches:
+                if m.strip():
+                    money.append(m.strip())
         
         return list(dict.fromkeys(money))
     

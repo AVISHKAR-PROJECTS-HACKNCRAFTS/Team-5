@@ -224,34 +224,97 @@ class ClassificationService:
             return self._classify_fallback(text)
     
     def _classify_fallback(self, text: str) -> ClassificationResult:
-        """Fallback keyword-based classification with scoring."""
+        """Fallback keyword-based classification with improved scoring."""
+        import re
         text_lower = text.lower()
         scores = {}
         
-        for category, keywords in OFFENCE_CATEGORIES.items():
-            # Count keyword matches
-            match_count = sum(1 for kw in keywords if kw.lower() in text_lower)
-            # Weight by keyword specificity
-            score = match_count / len(keywords) if keywords else 0
-            scores[category] = score
+        # Enhanced keyword matching with weighted scores
+        keyword_weights = {
+            "Theft": {
+                "stolen": 5, "theft": 5, "robbery": 5, "robbed": 5, "burglary": 5,
+                "stealing": 5, "stole": 5, "snatched": 5, "snatching": 5,
+                "pickpocket": 4, "shoplifting": 4, "missing": 2, "took away": 3,
+                "vehicle theft": 5, "bike stolen": 5, "phone stolen": 5,
+                "mobile stolen": 5, "laptop stolen": 5, "wallet stolen": 5,
+                "chain snatching": 5, "gold stolen": 5, "jewelry stolen": 5,
+                "valuables": 3, "belongings": 3, "broke into": 4, "break in": 4,
+                "looted": 5, "loot": 5, "snatch": 5, "ran away with": 4
+            },
+            "Assault": {
+                "assault": 5, "attack": 4, "attacked": 5, "beat": 5, "beaten": 5,
+                "beating": 5, "hit me": 5, "punch": 5, "punched": 5, "kick": 4,
+                "kicked": 5, "violence": 5, "violent": 4, "fight": 3, "fighting": 3,
+                "injury": 4, "injured": 4, "hurt": 3, "murder": 5, "killed": 5,
+                "death": 5, "grievous": 5, "weapon": 5, "knife": 5, "gun": 5,
+                "stabbed": 5, "shot": 5, "bodily harm": 5, "physical attack": 5,
+                "slapped": 5, "pushed": 4, "manhandled": 5
+            },
+            "Cyber Crime": {
+                "cyber": 5, "online fraud": 5, "hacking": 5, "hacked": 5, "phishing": 5,
+                "otp fraud": 5, "otp": 4, "upi fraud": 5, "upi": 3, "bank fraud": 5,
+                "credit card fraud": 5, "debit card": 4, "identity theft": 5,
+                "facebook fraud": 5, "instagram": 3, "whatsapp fraud": 5, 
+                "social media fraud": 5, "ransomware": 5, "malware": 5, 
+                "data breach": 5, "password stolen": 5, "account hacked": 5, 
+                "money transferred": 4, "digital fraud": 5, "internet fraud": 5,
+                "fake website": 5, "fake call": 4, "fake link": 5, "online scam": 5
+            },
+            "Cheating": {
+                "cheating": 5, "cheated": 5, "fraud": 4, "fraudulent": 5,
+                "scam": 4, "scammed": 5, "deceived": 5, "deception": 5,
+                "fake document": 5, "forged": 5, "forgery": 5, "false promise": 5,
+                "misrepresentation": 5, "embezzlement": 5, "breach of trust": 5,
+                "money fraud": 5, "financial fraud": 5, "investment fraud": 5,
+                "ponzi scheme": 5, "conned": 5, "duped": 5, "tricked": 4,
+                "took my money": 4, "did not return": 3, "false": 3
+            },
+            "Harassment": {
+                "harassment": 5, "harassed": 5, "harassing": 5, "stalking": 5,
+                "stalked": 5, "stalker": 5, "threatening": 5, "threatened": 5, 
+                "threat": 4, "intimidation": 5, "intimidated": 5, "bullying": 5, 
+                "bullied": 5, "sexual harassment": 5, "molestation": 5, 
+                "eve teasing": 5, "teasing": 4, "domestic violence": 5, 
+                "dowry": 5, "mental torture": 5, "abuse": 4, "abused": 5, 
+                "workplace harassment": 5, "verbal abuse": 4, "obscene": 5, 
+                "following me": 4, "troubling": 3, "disturbing": 3
+            }
+        }
         
-        # Normalize scores
-        total_score = sum(scores.values())
-        if total_score > 0:
+        for category, keywords in keyword_weights.items():
+            total_score = 0
+            
+            for keyword, weight in keywords.items():
+                # Use word boundary matching for better accuracy
+                pattern = r'\b' + re.escape(keyword) + r'\b'
+                if re.search(pattern, text_lower):
+                    total_score += weight
+            
+            scores[category] = total_score
+        
+        # Add "Other" category with minimal score
+        scores["Other"] = 1
+        
+        # Get max score for normalization
+        max_score = max(scores.values())
+        
+        # Normalize scores to probabilities
+        if max_score > 1:
+            total = sum(scores.values())
             for category in scores:
-                scores[category] /= total_score
+                scores[category] = scores[category] / total
         else:
-            # Default to "Other" if no matches
-            scores["Other"] = 1.0
+            # No keywords matched, default to Other
+            scores = {cat: 0.1 for cat in scores}
+            scores["Other"] = 0.6
         
         # Get top prediction
         top_category = max(scores, key=scores.get)
         top_confidence = scores[top_category]
         
-        # Ensure minimum confidence for "Other"
-        if top_confidence < 0.2:
-            top_category = "Other"
-            top_confidence = 0.5
+        # Boost confidence if clear winner
+        if top_confidence > 0.4:
+            top_confidence = min(0.85, top_confidence * 1.5)
         
         return ClassificationResult(
             label=top_category,
